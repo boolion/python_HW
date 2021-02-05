@@ -1,0 +1,79 @@
+from bs4 import BeautifulSoup
+import requests
+import pandas as pd
+import re
+import matplotlib.pyplot as plt
+
+res = requests.get('https://www.rottentomatoes.com/top/bestofrt/')
+html = BeautifulSoup(res.text, 'html.parser')
+
+table = html.findAll('table',{'class':'table'})[0]
+
+row = table.findAll('tr')
+
+header = [i.text for i in row[0].findAll('th')]
+
+row_column = [i.findAll('td') for i in row[1:]]
+
+url = ['https://www.rottentomatoes.com' + i[2].a.get('href') for i in row_column]
+
+df = pd.DataFrame(columns = header)
+
+for i in header:
+    for j in row_column:
+        df.loc[row_column.index(j),i] = j[header.index(i)].text.strip()
+        
+df['URL'] = url
+
+director = []
+director_url = []
+
+for i in range(0,8):#len(row_column)):
+    res_i = requests.get(df['URL'][i])
+    html_i = BeautifulSoup(res_i.text, 'html.parser')
+    
+    director.append(html_i.find(text='Director:').parent.parent.a.text)
+    director_url.append('https://www.rottentomatoes.com' + html_i.find(text='Director:').parent.parent.a['href'])
+    
+    res_j = requests.get(director_url[i])
+    html_j = BeautifulSoup(res_j.text, 'html.parser')
+    
+    head_j = [i.text.strip() for i in html_j.findAll('button',{'data-qa':re.compile('celebrity-filmography-movies-thead')})]
+    head_j.insert(3,'Credit')
+
+    row_j = html_j.findAll('tr',{'data-qa':'celebrity-filmography-movies-trow'})
+
+    row_column_j = [i.findAll('td') for i in row_j]
+
+    df2 = pd.DataFrame(columns = head_j)
+
+    for j in row_column_j:
+        if 'Director' in j[3].text and not 'No Score Yet' in j[0].text and not 'No Score Yet' in j[1].text:
+            for k in head_j:
+                df2.loc[row_column_j.index(j),k] = j[head_j.index(k)].text.strip()
+                
+    display(df2.style.set_caption(director[i]))
+        
+    df2[head_j[0]] = pd.to_numeric(df2[head_j[0]].str.replace('%',''))
+    df2[head_j[1]] = pd.to_numeric(df2[head_j[1]].str.replace('%',''))
+    df2[head_j[5]] = pd.to_numeric(df2[head_j[5]])
+    
+    top100 = [df2[df2['Title']==ii].index[0] for ii in df2['Title'] if ii in df['Title'][i]]
+
+    width = 0.45
+    plt.figure(figsize=(10,8))
+    plt.bar(df2[head_j[5]]-width/2, df2[head_j[0]], width, label='Critics')
+    plt.bar(df2[head_j[5]]+width/2, df2[head_j[1]], width, label='Audience')
+    plt.bar(df2.loc[top100,head_j[5]]-width/2, df2.loc[top100,head_j[0]], width, color='green', label='Top 100')
+    plt.legend()
+    plt.xticks(df2[head_j[5]], fontsize=16, rotation='vertical')
+    plt.yticks(fontsize=16)
+    plt.ylim(0,100)
+    plt.xlabel('Year', fontsize=20)
+    plt.ylabel('Score', fontsize=20)
+    plt.title(director[i], fontsize=20)
+
+    for l in range(0,len(df2)):
+        plt.text(df2.loc[df2.index[l],head_j[5]], 1, df2.loc[df2.index[l],head_j[2]], 
+                 rotation=90, horizontalalignment='center', verticalalignment='bottom', fontsize=20)
+    plt.show()
